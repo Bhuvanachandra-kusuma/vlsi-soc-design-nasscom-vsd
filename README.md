@@ -12,3 +12,5 @@ set ::env(LIB_SLOWEST) "$::env(OPENLANE_ROOT)/designs/picorv32a/src/sky130_fd_sc
 set ::env(LIB_TYPICAL) "$::env(OPENLANE_ROOT)/designs/picorv32a/src/sky130_fd_sc_hd__typical.lib"
 
 set ::env(EXTRA_LEFS) [glob $::env(OPENLANE_ROOT)/designs/$::env(DESIGN_NAME)/src/*.lef]
+
+magic -T $PDK_ROOT/sky130A/libs.tech/magic/sky130A.tech lef read designs/picorv32a/runs/22-05_17-21/tmp/merged.lef def read designs/picorv32a/runs/22-05_17-21/results/placement/picorv32a.placement.def &
