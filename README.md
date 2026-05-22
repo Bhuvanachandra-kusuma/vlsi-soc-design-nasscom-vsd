@@ -17,3 +17,6 @@ magic -T $PDK_ROOT/sky130A/libs.tech/magic/sky130A.tech lef read designs/picorv3
 
 
 grep -i "sky130_vsdinv" designs/picorv32a/runs/22-05_17-21/results/synthesis/picorv32a.synthesis.v
+
+
+magic -T $PDK_ROOT/sky130A/libs.tech/magic/sky130A.tech designs/picorv32a/runs/22-05_17-21/results/magic/picorv32a.mag &
