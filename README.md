@@ -1,3 +1,51 @@
+set ::env(CLOCK_PORT) clk
+
+set ::env(CLOCK_PERIOD) 5.000
+
+set ::env(SYNTH_DRIVING_CELL) sky130_fd_sc_hd__clkbuf_6
+
+set ::env(SYNTH_DRIVING_CELL_PIN) X
+
+set ::env(SYNTH_CAP_LOAD) 17.65
+
+set ::env(SYNTH_MAX_FANOUT) 4
+
+set ::env(IO_PCT) 0.2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # vlsi-soc-design-nasscom-vsd
 RTL2GDSII flow using OpenLANE &amp; SkyWater 130nm PDK | NASSCOM-VSD SoC Design Workshop
 
