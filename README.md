@@ -39,3 +39,45 @@ report_checks -path_delay min_max -fields {slew trans net cap input_pin}
 report_tns
 
 report_wns
+
+
+nano ~/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/my_base.sdc
+
+set ::env(CLOCK_PORT) clk
+
+set ::env(CLOCK_PERIOD) 5.000
+
+create_clock [get_ports $::env(CLOCK_PORT)] -name $::env(CLOCK_PORT) -period $::env(CLOCK_PERIOD)
+
+set IO_PCT 0.2
+
+set input_delay_value [expr $::env(CLOCK_PERIOD) * $IO_PCT]
+
+set output_delay_value [expr $::env(CLOCK_PERIOD) * $IO_PCT]
+
+set_max_fanout $::env(SYNTH_MAX_FANOUT) [current_design]
+
+
+set clk_indx [lsearch [all_inputs] [get_port $::env(CLOCK_PORT)]]
+
+set all_inputs_wo_clk [lreplace [all_inputs] $clk_indx $clk_indx]
+
+set all_inputs_wo_clk_rst $all_inputs_wo_clk
+
+set_input_delay $input_delay_value -clock [get_clocks $::env(CLOCK_PORT)] $all_inputs_wo_clk_rst
+
+set_output_delay $output_delay_value -clock [get_clocks $::env(CLOCK_PORT)] [all_outputs]
+
+set_driving_cell -lib_cell sky130_fd_sc_hd__clkbuf_6 -pin X $all_inputs_wo_clk_rst
+
+set_load 5 [all_outputs]
+
+
+
+
+
+
+
+
+
+
