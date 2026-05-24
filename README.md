@@ -23,11 +23,19 @@ magic -T $PDK_ROOT/sky130A/libs.tech/magic/sky130A.tech designs/picorv32a/runs/2
 
 
 set_cmd_units -time ns -capacitance pF -current mA -voltage V -resistance kOhm -distance um
+
 read_liberty -min /home/vsduser/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/sky130_fd_sc_hd__fast.lib
+
 read_liberty -max /home/vsduser/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/sky130_fd_sc_hd__slow.lib
+
 read_verilog /home/vsduser/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/runs/22-05_17-21/results/synthesis/picorv32a.synthesis.v
+
 link_design picorv32a
+
 read_sdc /home/vsduser/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/my_base.sdc
+
 report_checks -path_delay min_max -fields {slew trans net cap input_pin}
+
 report_tns
+
 report_wns
