@@ -72,9 +72,21 @@ set_driving_cell -lib_cell sky130_fd_sc_hd__clkbuf_6 -pin X $all_inputs_wo_clk_r
 
 set_load 5 [all_outputs]
 
+nano ~/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/my_base.sdc
 
+create_clock [get_ports clk] -name clk -period 5
 
+set_clock_uncertainty 0.25 [get_clocks clk]
 
+set_clock_transition 0.1 [get_clocks clk]
+
+set_input_delay -max 1.5 [get_clocks clk] [all_inputs]
+
+set_input_delay -min 0.5 [get_clocks clk] [all_inputs]
+
+set_output_delay -max 0.5 [get_clocks clk] [all_outputs]
+
+set_output_delay -min 0.25 [get_clocks clk] [all_outputs]
 
 
 
