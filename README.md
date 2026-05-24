@@ -14,7 +14,23 @@ set ::env(IO_PCT) 0.2
 
 
 
+set_cmd_units -time ns -capacitance pF -current mA -voltage V -resistance kOhm -distance um
 
+read_liberty -min /openLANE_flow/designs/picorv32a/src/sky130_fd_sc_hd__fast.lib
+
+read_liberty -max /openLANE_flow/designs/picorv32a/src/sky130_fd_sc_hd__slow.lib
+
+read_verilog /openLANE_flow/designs/picorv32a/runs/22-05_17-21/results/synthesis/picorv32a.synthesis.v
+
+link_design picorv32a
+
+read_sdc /openLANE_flow/designs/picorv32a/src/my_base.sdc
+
+report_checks -path_delay min_max -fields {slew trans net cap input_pin}
+
+report_tns
+
+report_wns
 
 
 
