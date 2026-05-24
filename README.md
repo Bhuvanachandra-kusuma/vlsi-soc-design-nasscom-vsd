@@ -13,6 +13,24 @@ set ::env(SYNTH_MAX_FANOUT) 4
 set ::env(IO_PCT) 0.2
 
 
+set_cmd_units -time ns -capacitance pF -current mA -voltage V -resistance kOhm -distance um
+
+read_liberty -min /home/vsduser/Desktop/work/tools/openlane_working_dir/pdks/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ff_100C_1v65.lib
+
+read_liberty -max /home/vsduser/Desktop/work/tools/openlane_working_dir/pdks/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ss_n40C_1v28.lib
+
+read_verilog /home/vsduser/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/runs/22-05_17-21/results/synthesis/picorv32a.synthesis.v
+
+link_design picorv32a
+
+read_sdc /home/vsduser/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/my_base.sdc
+
+report_checks -path_delay min_max -fields {slew trans net cap input_pin}
+
+report_tns
+
+report_wns
+
 
 
 set_cmd_units -time ns -capacitance pF -current mA -voltage V -resistance kOhm -distance um
