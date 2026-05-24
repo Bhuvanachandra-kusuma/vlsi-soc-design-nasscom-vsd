@@ -90,6 +90,12 @@ set_output_delay -min 0.25 [get_clocks clk] [all_outputs]
 
 
 
+cp ~/Desktop/work/tools/openlane_working_dir/openlane/scripts/base.sdc ~/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/my_base.sdc
 
+cat ~/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/my_base.sdc
+
+cd ~/Desktop/work/tools/openlane_working_dir/openlane
+
+sta pre_sta.conf
 
 
