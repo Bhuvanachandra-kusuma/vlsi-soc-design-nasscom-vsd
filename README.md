@@ -1,718 +1,888 @@
-# Digital VLSI SoC Design and Planning — RTL to GDSII
+# VLSI SoC Design & Planning — NASSCOM VSD Workshop
 
-> A 5-day hands-on workshop on the complete RTL-to-GDSII flow for digital VLSI SoC design,
-> organised by **VSD (VLSI System Design)** in collaboration with **NASSCOM**.
-> This repository documents my learning, lab outputs, and key takeaways from each day.
+> **A complete RTL-to-GDSII physical design flow** using open-source EDA tools, the SkyWater Sky130 PDK, and the `picorv32a` RISC-V processor as the target design.
 
 ---
 
 ## Table of Contents
 
-- [Day 1 — Inception of Open-Source EDA, OpenLANE & Sky130 PDK](#day-1--inception-of-open-source-eda-openlane--sky130-pdk)
-- [Day 2 — Floorplanning and Introduction to Library Cells](#day-2--floorplanning-and-introduction-to-library-cells)
-- [Day 3 — Design and Characterisation of Library Cells using Magic & ngspice](#day-3--design-and-characterisation-of-library-cells-using-magic--ngspice)
-- [Day 4 — Pre-Layout Timing Analysis and Clock Tree Synthesis](#day-4--pre-layout-timing-analysis-and-clock-tree-synthesis)
-- [Day 5 — Final RTL to GDSII using TritonRoute & OpenSTA](#day-5--final-rtl-to-gdsii-using-tritonroute--opensta)
+- [Overview](#overview)
+- [Tool & PDK Stack](#tool--pdk-stack)
+- [Day 1 — Inception of Open-Source EDA, OpenLane & Sky130 PDK](#day-1--inception-of-open-source-eda-openlane--sky130-pdk)
+- [Day 2 — Good Floorplan vs Bad Floorplan & Introduction to Library Cells](#day-2--good-floorplan-vs-bad-floorplan--introduction-to-library-cells)
+- [Day 3 — Design Library Cell Using Magic Layout and ngspice Characterization](#day-3--design-library-cell-using-magic-layout-and-ngspice-characterization)
+- [Day 4 — Pre-Layout Timing Analysis & Importance of Good Clock Tree](#day-4--pre-layout-timing-analysis--importance-of-good-clock-tree)
+- [Day 5 — Final Steps for RTL2GDS Using tritonRoute & OpenSTA](#day-5--final-steps-for-rtl2gds-using-tritonroute--opensta)
+- [Key Results Summary](#key-results-summary)
+- [Repository Structure](#repository-structure)
 
 ---
 
-## Day 1 — Inception of Open-Source EDA, OpenLANE & Sky130 PDK
+## Overview
 
-### Theory
+This repository documents the **NASSCOM VSD 5-Day Hands-On Workshop** on Digital VLSI SoC Design and Planning. The workshop covers the complete physical design flow from RTL to GDSII using entirely open-source EDA tooling:
 
-#### Understanding the Chip Package
-
-When we look at any embedded board and point to what we call the "chip," we are actually looking at the **package** — a protective casing around the actual silicon die. The real chip sits in the centre of this package and communicates with the outside world via **wire bonding** — tiny wires that connect the chip's pads to the package pins.
-
-#### Inside the Chip: Core, Pads, and Die
-
-Zooming into the chip itself, all signals between the chip and the external world pass through **pads** placed around the periphery. The region enclosed by the pads is the **core** — this is where all the actual digital logic lives. Together, the core and pads form the **die**, which is the fundamental unit of chip manufacturing.
-
-- **Foundry** — the place where chips are physically manufactured
-- **Foundry IPs** — IP blocks that require specialised process knowledge (e.g., PLLs, SRAMs)
-- **Macros** — reusable, purely digital logic blocks
-
-![Chip Architecture](images/day1/02_chip_architecture_die_core_pads.png)
-*Chip showing Die, Core, Pads, Foundry IPs and Macros*
-
-#### From Software to Silicon — The ISA Bridge
-
-A C program running on a chip goes through a multi-layer transformation:
-
-1. The C code is compiled into **RISC-V assembly** (or another ISA)
-2. The assembler converts it to **binary machine code (0s and 1s)**
-3. This binary pattern needs an **RTL implementation** of the ISA
-4. The RTL gets synthesised and goes through the full **PnR (Place and Route)** flow to become a physical layout
-
-The system software stack (OS → Compiler → Assembler) acts as the bridge between what the programmer writes and what the hardware executes.
-
-![RTL to GDSII Flow](images/day1/03_rtl_to_gdsii_flow_overview.png)
-*Complete RTL to GDSII flow — software to silicon*
-
-#### Why Open-Source EDA Matters
-
-For a fully open-source ASIC design flow, three things are needed:
-
-1. **RTL Designs** (e.g., from opencores.org)
-2. **EDA Tools** (synthesis, P&R, verification)
-3. **PDK Data** (process-specific design rules, standard cell libraries)
-
-Historically, PDKs were proprietary and distributed only under NDAs. This changed in **June 2020**, when Google collaborated with SkyWater Technology to release the **Sky130 PDK** — the world's first open-source process design kit.
-
-![Open Source Digital ASIC Design](images/day1/01_open_source_digital_asic_design.png)
-*The open-source ASIC design ecosystem: RTL + EDA Tools + PDK*
-
-#### OpenLANE and the RTL to GDSII Flow
-
-**OpenLANE** is an open-source automated flow that takes an RTL netlist all the way to a GDSII layout file. It orchestrates multiple EDA tools:
-
-| Stage | Tool(s) Used |
-|---|---|
-| Synthesis | Yosys, ABC |
-| Floorplan & PDN | OpenROAD |
-| Placement | OpenROAD |
-| CTS | TritonCTS |
-| Routing | FastRoute, TritonRoute |
-| SPEF Extraction | OpenRCX |
-| GDS Streaming | Magic, KLayout |
-| Timing Analysis | OpenSTA |
-| DRC & LVS | Magic, Netgen |
-
-![OpenLANE ASIC Flow](images/day1/04_openlane_asic_flow_diagram.png)
-*OpenLANE ASIC flow diagram showing all stages from RTL to GDSII*
+- Synthesis → Floorplan → Placement → CTS → Routing → Sign-off
+- Custom CMOS inverter cell (`sky130_vsdinv`) designed from scratch and integrated into `picorv32a`
+- DRC violations identified and fixed using Magic VLSI
+- Timing analysis performed with OpenROAD's built-in STA engine
 
 ---
 
-### Lab — Running OpenLANE for `picorv32a`
+## Tool & PDK Stack
 
-#### Setting Up and Invoking OpenLANE
+| Tool | Role |
+|------|------|
+| **OpenLANE** | RTL-to-GDSII automated flow orchestrator |
+| **Yosys** | RTL synthesis |
+| **OpenROAD** | Floorplan, placement, CTS, routing, STA |
+| **Magic VLSI** | Layout viewing, LEF extraction, DRC |
+| **ngspice** | SPICE-level circuit simulation |
+| **Netgen** | LVS (Layout vs. Schematic) |
+| **KLayout** | GDS viewing & DRC |
+| **SkyWater Sky130** | Open-source 130 nm PDK |
 
-Navigate to the OpenLANE working directory and launch the flow in **interactive mode**:
+---
+
+## Day 1 — Inception of Open-Source EDA, OpenLane & Sky130 PDK
+
+### Theory: Open-Source Digital ASIC Design
+
+The open-source EDA ecosystem enables a complete ASIC design flow without proprietary tools. The three pillars are:
+
+1. **RTL designs** — open-source IP cores (e.g., `picorv32a`, `ibex`)
+2. **EDA Tools** — Yosys, OpenROAD, Magic, ngspice, Netgen
+3. **PDK** — SkyWater Sky130 (the first manufacturable open PDK, released in 2020 via Google)
+
+![Open-Source Digital ASIC Design](images/day1/01_open_source_digital_asic_design.png)
+*The three enabling pillars of open-source digital ASIC design: open RTL, open EDA tools, and open PDK.*
+
+---
+
+### Theory: Chip Architecture — Die, Core & Pads
+
+A chip consists of the **die** (the silicon area), the **core** (where logic sits), and **I/O pads** arranged around the periphery. The relationship between these defines utilization factor and aspect ratio — two critical floorplan parameters.
+
+- **Core Utilization Factor** = Area of Netlist / Area of Core
+- **Aspect Ratio** = Height / Width of core
+
+![Chip Architecture — Die, Core and Pads](images/day1/02_chip_architecture_die_core_pads.png)
+*Die, core, and I/O pad arrangement showing how macros and standard cells populate the core area.*
+
+---
+
+### Theory: RTL-to-GDSII Flow Overview
+
+The complete physical design flow transforms an RTL description into a manufacturable GDSII file through these stages:
+
+| Stage | Description |
+|-------|-------------|
+| **Synthesis** | Maps RTL to gate-level netlist using standard cell library |
+| **Floorplan** | Sets die/core area, places I/O pins, adds power rings |
+| **Placement** | Places standard cells in legal positions |
+| **CTS** | Clock Tree Synthesis — balances clock skew |
+| **Routing** | Connects all nets using metal layers |
+| **Sign-off** | DRC, LVS, STA verification; export GDSII |
+
+![RTL to GDSII Flow Overview](images/day1/03_rtl_to_gdsii_flow_overview.png)
+*End-to-end RTL-to-GDSII flow from HDL source to tape-out-ready GDSII.*
+
+---
+
+### Theory: OpenLANE ASIC Flow Diagram
+
+OpenLANE wraps and orchestrates all open-source tools into a single automated flow. It supports both interactive and fully automated modes and includes built-in design exploration for tuning synthesis strategies, utilization, and timing.
+
+![OpenLane ASIC Flow Diagram](images/day1/04_openlane_asic_flow_diagram.png)
+*OpenLANE's internal tool chain: Yosys → OpenROAD → Magic → Netgen, all driven by a Tcl-based flow.*
+
+---
+
+### Lab 1.1 — Design Preparation
+
+The first step is launching the OpenLANE interactive environment and preparing the `picorv32a` design. This merges the standard cell LEF files, reads `config.tcl`, and creates the `runs/` directory structure.
 
 ```bash
+# Launch OpenLANE Docker container
 cd ~/Desktop/work/tools/openlane_working_dir/openlane
+docker run -it --rm -v $(pwd):/openLANE_flow -v $PDK_ROOT:$PDK_ROOT \
+  -e PDK_ROOT=$PDK_ROOT -u $(id -u $USER):$(id -g $USER) efabless/openlane:v0.21
+
+# Inside the container
 ./flow.tcl -interactive
 package require openlane 0.9
-```
 
-#### Preparing the Design
-
-Before synthesis, prepare the design to merge cell LEF and technology LEF files:
-
-```bash
+# Prepare the picorv32a design
 prep -design picorv32a
 ```
 
-![Prep Design Complete](images/day1/05_prep_design_complete.png)
-*`prep -design picorv32a` completing — merged LEF and run directory created*
+![Design Preparation Complete](images/day1/05_prep_design_complete.png)
+*`prep -design picorv32a` completes successfully — merged LEF created, run directory initialized.*
 
-#### Running Synthesis
+---
+
+### Lab 1.2 — Synthesis, Floorplan & I/O Pins
+
+After synthesis (`run_synthesis`), the floorplan is generated. OpenLANE places I/O pins equidistantly around the core boundary by default.
 
 ```bash
 run_synthesis
-```
-
-After synthesis completes, we calculate the **Flop Ratio** — the ratio of D flip-flops to the total number of cells:
-
-```
-Flop Ratio  =  Number of D Flip-Flops / Total Number of Cells
-            =  1613 / 14876
-            =  0.1084  →  10.84%
-```
-
-![Flop Ratio Decimal](images/day1/09_flop_ratio_decimal_0108.png)
-*Calculator showing flop ratio: 0.1084296853993009*
-
-![Flop Ratio Percentage](images/day1/10_flop_ratio_percentage_1084.png)
-*Flop ratio as a percentage: 10.84%*
-
----
-
-## Day 2 — Floorplanning and Introduction to Library Cells
-
-### Theory
-
-#### Chip Floorplanning — Utilisation Factor and Aspect Ratio
-
-Floorplanning defines the physical organisation of the chip. Two fundamental parameters govern it:
-
-- **Utilisation Factor** = Area occupied by Netlist / Total Core Area
-  - A value of 0.5–0.6 is typical — leaving room for buffers, clock tree, and routing
-- **Aspect Ratio** = Height / Width of the core
-  - A ratio of 1 gives a square die; anything else gives a rectangle
-
-#### Pre-Placed Cells and Decoupling Capacitors
-
-**Pre-placed cells** — such as memories, PLLs, and complex IP blocks — are fixed in position before automated placement runs. Their location is decided manually based on connectivity.
-
-**Decoupling capacitors** are placed around pre-placed cells to act as local charge reservoirs, compensating for voltage drops due to switching activity and ensuring clean power delivery.
-
-#### Power Planning — Mesh and Rings
-
-A robust power grid uses **power rings** around the core and a **power mesh** across the chip. Multiple VDD and VSS stripes on both metal layers ensure every standard cell has a nearby power tap — minimising IR drop and electromigration risk.
-
-#### Pin Placement
-
-Input and output pins are placed along the chip boundary. The placement is guided by connectivity — a pin that drives logic deep in the core should be physically closer to that logic. The area between the core and die boundary is blocked from automated cell placement to reserve space for pin buffers and ESD protection cells.
-
----
-
-### Lab — Floorplan
-
-#### Running Floorplan
-
-```bash
 run_floorplan
 ```
 
 ![Run Floorplan Complete](images/day1/06_run_floorplan_complete.png)
-*Floorplan completing — DEF file generated in results/floorplan/*
-
-After completion, inspect the generated DEF file:
+*`run_floorplan` completes — DEF file generated with core area, power straps, and I/O pin placement.*
 
 ```bash
-cd results/floorplan/
-less picorv32a.floorplan.def
-```
-
-#### Viewing the Floorplan in Magic
-
-```bash
+# View floorplan in Magic
+cd runs/<run>/results/floorplan/
 magic -T $PDK_ROOT/sky130A/libs.tech/magic/sky130A.tech \
-      lef read ../../tmp/merged.lef \
-      def read picorv32a.floorplan.def &
+  lef read ../../tmp/merged.lef \
+  def read picorv32a.floorplan.def &
 ```
 
-![Magic IO Pins Equidistant](images/day1/07_magic_io_pins_equidistant.png)
-*Magic — IO pins placed equidistantly along the die boundary*
+![Magic — I/O Pins Equidistant](images/day1/07_magic_io_pins_equidistant.png)
+*Magic VLSI showing the floorplan with I/O pins evenly distributed around the die boundary.*
 
 ---
 
-### Lab — Placement
+### Lab 1.3 — Placement
 
-#### Running Placement
+Global placement (`run_placement`) places all standard cells legally inside the core area. The tool optimizes for wire length while respecting density constraints.
 
 ```bash
 run_placement
 ```
 
-Placement happens in two steps:
-1. **Global Placement** — minimises wire length using the HPWL (Half Perimeter Wire Length) metric
-2. **Detailed Placement** — legalises cell positions so that no cells overlap and all are on row sites
-
 ![Run Placement Complete](images/day1/08_run_placement_complete.png)
-*Placement completing — cells legally placed with 0 violations*
+*`run_placement` finishes — global placement done, overflow converged, legalization complete.*
 
-#### Viewing Placement in Magic
+---
 
-```bash
-magic -T $PDK_ROOT/sky130A/libs.tech/magic/sky130A.tech \
-      lef read ../../tmp/merged.lef \
-      def read picorv32a.placement.def &
+### Lab 1.4 — Flop Ratio Calculation
+
+An important synthesis metric is the **flop ratio** — the proportion of D flip-flops in the design.
+
+```
+Flop Ratio = Number of DFFs / Total Number of Cells
+           = 1613 / 14876
+           = 0.1084   (10.84%)
 ```
 
-![Magic Placement Full View](images/day1/11_magic_placement_full_view.png)
-*Magic — full chip view after placement*
+![Flop Ratio — Decimal 0.108](images/day1/09_flop_ratio_decimal_0108.png)
+*Synthesis report showing raw DFF and cell counts used to compute the flop ratio.*
 
-![Magic Placement Zoomed](images/day1/12_magic_placement_zoomed.png)
-*Magic — zoomed into standard cell placement area*
+![Flop Ratio — 10.84 Percent](images/day1/10_flop_ratio_percentage_1084.png)
+*Calculated flop ratio of 10.84% confirms the design is logic-dominated (not flip-flop dominated).*
 
-![Magic Placement Full Chip](images/day1/15_magic_placement_full_chip.png)
-*Magic — full chip with all standard cells placed*
+---
 
-![Placement Statistics Table](images/day1/16_placement_statistics_table.png)
-*Placement statistics table showing cell counts and wire length*
+### Lab 1.5 — Placement Views in Magic
+
+After placement, the layout is inspected in Magic to verify standard cell rows and pin accessibility.
+
+![Magic — Placement Full View](images/day1/11_magic_placement_full_view.png)
+*Full chip view post-placement showing standard cell rows inside the core and I/O pins on the boundary.*
+
+![Magic — Placement Zoomed](images/day1/12_magic_placement_zoomed.png)
+*Zoomed view of the core area showing individual standard cells placed in rows.*
 
 ![Placement Report Terminal](images/day1/13_placement_report_terminal.png)
-*Placement report in terminal*
+*OpenLANE terminal output showing placement metrics: HPWL, overflow, and cell density.*
 
 ![Placement DEF Listing](images/day1/14_placement_def_listing.png)
-*DEF file listing after placement*
+*DEF file listing confirming component placement coordinates for all standard cells.*
+
+![Magic — Placement Full Chip](images/day1/15_magic_placement_full_chip.png)
+*Complete chip floorplan with all standard cells placed; power rails visible as horizontal stripes.*
+
+---
+
+### Lab 1.6 — Placement Statistics
+
+OpenLANE generates detailed placement statistics including pin counts, cell area, and utilization.
+
+![Placement Statistics Table](images/day1/16_placement_statistics_table.png)
+*Placement statistics: total cells, area, utilization factor, and HPWL summary.*
+
+![Placement Magic Full View 2](images/day1/17_placement_magic_full_view2.png)
+*Alternative Magic view of the completed placement showing the full die with all elements.*
 
 ![Placement Statistics Table 2](images/day1/18_placement_statistics_table2.png)
-*Detailed placement statistics*
+*Extended statistics table with per-layer wire length estimates and density breakdown.*
 
 ---
 
-## Day 3 — Design and Characterisation of Library Cells using Magic & ngspice
+## Day 2 — Good Floorplan vs Bad Floorplan & Introduction to Library Cells
 
-### Theory
+### Theory: Floorplanning Concepts
 
-#### CMOS Inverter — SPICE Simulation
+A **good floorplan** minimizes wire length, avoids congestion, and satisfies timing. Key parameters:
 
-To characterise a standard cell, we write a SPICE netlist describing the PMOS and NMOS transistors with their W/L ratios, supply voltage, input stimulus, and load capacitance. We then simulate and extract these timing parameters:
+- **Utilization Factor**: 50–60% is typical for production designs (leaves room for routing)
+- **Aspect Ratio**: 1.0 (square) is ideal; deviations can cause congestion hotspots
+- **Pre-placed cells**: Memories, PLLs, and analog blocks placed before standard cells
+- **Decoupling capacitors**: Added near switching blocks to stabilize VDD/VSS
 
-- **Rise Time** — time for output to go from 20% to 80% of VDD
-- **Fall Time** — time for output to go from 80% to 20% of VDD
-- **Propagation Delay** — time from 50% of input to 50% of output (both rising and falling)
+### Theory: Library Cells & Timing Characterization
 
-```
-Rise transition time  =  Time(output 80%) − Time(output 20%)
-Fall transition time  =  Time(output 20%) − Time(output 80%)
-Propagation delay     =  Time(output 50%) − Time(input 50%)
-```
+Standard cells in the Sky130 PDK are characterized for:
+- **Propagation delay** (50% input → 50% output)
+- **Rise/Fall time** (20%→80% transitions)
+- **Setup/Hold time** for sequential elements
+- **Leakage & dynamic power**
 
-#### 16-Mask CMOS Fabrication Process (Brief Overview)
+### Lab 2.1 — Custom Inverter Cell Exploration in Magic
 
-The chip fabrication follows a sequence of approximately 16 mask steps:
+The `sky130_vsdinv` custom inverter is opened in Magic to examine its layout structure. PMOS (on top, connected to VDD) and NMOS (on bottom, connected to VSS) are identified.
 
-1. Substrate selection (p-type, high resistivity silicon)
-2. Active region creation — field oxidation + Si₃N₄ mask to isolate regions
-3. N-well and P-well formation via ion implantation
-4. Gate oxide growth — thin SiO₂ layer for gate dielectric
-5. Polysilicon gate deposition and patterning
-6. LDD (Lightly Doped Drain) implantation
-7. Source/Drain implantation and annealing
-8. Contacts formation — tungsten plugs into silicon
-9. Metal interconnect layers (aluminium or copper)
-10. Final passivation and pad opening
+![Magic — Inverter PMOS Identified](images/day2/01_magic_inverter_pmos_identified.png)
+*Magic layout view with the PMOS transistor highlighted — note connection to VDD (top metal rail).*
 
-#### Sky130 PDK — Layer Stack
+![Magic — Inverter NMOS Identified](images/day2/02_magic_inverter_nmos_identified.png)
+*NMOS transistor of the inverter highlighted — connects to VSS (bottom metal rail).*
 
-The Sky130 PDK uses a 5-metal layer stack (li1, met1–met4 plus local interconnect). Each layer has specific minimum width and spacing rules defined in the tech file — violations of these rules are caught by DRC in Magic.
+![Magic — Inverter Output Pin Y](images/day2/03_magic_inverter_output_pin_y.png)
+*Output port `Y` of the inverter identified in Magic — metal1 connection to the drain of both transistors.*
+
+![Magic — Inverter Full Layout](images/day2/04_magic_inverter_full_layout.png)
+*Full inverter layout showing PMOS, NMOS, input port A, output port Y, VDD, and VSS connections.*
 
 ---
 
-### Lab — Cloning and Characterising a Custom Inverter Cell
+### Lab 2.2 — ngspice SPICE Simulation
 
-#### Cloning the Standard Cell Repository
+The inverter's SPICE netlist is extracted from Magic and simulated with ngspice to characterize its timing behavior.
 
 ```bash
-git clone https://github.com/nickson-jose/vsdstdcelldesign.git
-cd vsdstdcelldesign
-magic -T sky130A.tech sky130_inv.mag &
-```
-
-#### Identifying Components in Magic
-
-In the Magic layout, use the `what` command in the tkcon window after selecting a region:
-
-```tcl
-# Select a region by pressing S over it, then:
-what
-```
-
-![Magic Inverter PMOS](images/day2/01_magic_inverter_pmos_identified.png)
-*PMOS transistor identified — sky130_fd_pr__pfet_01v8*
-
-![Magic Inverter NMOS](images/day2/02_magic_inverter_nmos_identified.png)
-*NMOS transistor identified — sky130_fd_pr__nfet_01v8*
-
-![Magic Inverter Output Pin Y](images/day2/03_magic_inverter_output_pin_y.png)
-*Output pin Y highlighted on the local interconnect layer*
-
-![Magic Inverter Full Layout](images/day2/04_magic_inverter_full_layout.png)
-*Complete inverter cell layout — PMOS on top, NMOS on bottom*
-
-The CMOS inverter schematic for reference:
-
-![CMOS Inverter Schematic](images/day3/06_cmos_inverter_schematic_handdrawn.png)
-*CMOS inverter — PMOS pull-up network, NMOS pull-down network, VDD = 3.3V*
-
-#### Extracting the SPICE Netlist from Magic
-
-In the tkcon window:
-
-```tcl
+# In Magic tkcon
 extract all
 ext2spice cthresh 0 rthresh 0
 ext2spice
 ```
 
-![SPICE Extract Commands](images/day3/08_spice_netlist_edited_for_sim.png)
-*Edited SPICE netlist — model library paths corrected and stimulus added*
-
-#### Running ngspice Simulation
-
 ```bash
-ngspice sky130_inv.spice
-```
-
-In the ngspice prompt:
-
-```bash
-plot y vs time a
+# Run ngspice simulation
+ngspice sky130_vsdinv.spice
 ```
 
 ![ngspice Simulation Launched](images/day2/05_ngspice_simulation_launched.png)
-*ngspice launched with the extracted inverter SPICE netlist*
+*ngspice launched with the extracted SPICE netlist — models loaded from Sky130 PDK.*
 
 ![ngspice Waveform Plot](images/day2/06_ngspice_waveform_plot.png)
-*ngspice transient simulation — output Y (blue) vs input A (red) vs time*
-
-#### Timing Characterisation Measurements
-
-From the waveform, measure each timing parameter by clicking on the plot:
-
-**Rise transition time** = Time(output at 80% of 3.3V = 2.64V) − Time(output at 20% of 3.3V = 0.66V)
-
-![Rise Time 80pct Measurement](images/day2/12_rise_time_80pct_measurement.png)
-*Rise time measurement at 80% point (2.64V)*
-
-**Fall transition time** = Time(output at 20% = 0.66V) − Time(output at 80% = 2.64V)
-
-![Fall Time Measurement](images/day2/13_fall_time_measurement.png)
-*Fall time measurement*
-
-**Propagation delay** = Time(output at 50% = 1.65V) − Time(input at 50% = 1.65V)
-
-![Propagation Delay Measurement](images/day2/14_propagation_delay_measurement.png)
-*Propagation delay measurement at 50% crossing*
-
-![Timing Characterization Values](images/day2/15_timing_characterization_values.png)
-*All timing characterisation values extracted from the waveform*
+*Transient simulation waveforms: input (blue) and output (red) showing clean inverter switching behavior.*
 
 ---
 
-### Lab — DRC Fix: poly.9 Rule in sky130A.tech
+### Lab 2.3 — Post-Synthesis Placement View
 
-The Sky130 tech file has an incorrectly implemented poly.9 rule — a poly-to-poly spacing violation that Magic does not flag. We fix it by editing the tech file.
+After synthesis, the initial placement can be viewed in Magic to get a sense of cell density.
 
-Reference: [Sky130 Periphery Rules](https://skywater-pdk.readthedocs.io/en/main/rules/periphery.html)
+![Magic — Placement View Post-Synthesis](images/day2/07_magic_placement_view_post_synth.png)
+*Magic layout view immediately after synthesis — cells are unplaced (stacked at origin), showing pre-placement state.*
 
-![Magic met3 DRC Violation](images/day3/12_magic_met3_drc_violation.png)
-*met3 DRC violation shown in Magic — "Not implemented" spacing rule*
+---
 
-![Magic DRC Violation Highlighted](images/day3/13_magic_drc_violation_highlighted.png)
-*DRC violation highlighted in the Magic layout view*
+### Lab 2.4 — Floorplan Exploration in Magic
 
-Open the tech file and add the missing spacing rules:
+The generated floorplan DEF is loaded into Magic to inspect I/O placement and standard cell rows.
 
-```bash
-vi sky130A.tech
-```
+![Magic — Blank Floorplan](images/day2/08_magic_blank_floorplan.png)
+*Empty core area after floorplan — I/O pins placed on boundary, core interior empty before placement.*
 
-![sky130A Tech Poly Rules](images/day3/14_sky130A_tech_poly_rules.png)
-*sky130A.tech — poly spacing rules section to be corrected*
+![Magic — Floorplan Standard Cell Rows](images/day2/09_magic_floorplan_stdcell_rows.png)
+*Standard cell rows (site rows) visible inside the core — horizontal tracks where cells will be placed.*
 
-After editing, reload the tech file and re-run DRC:
+![Magic — Floorplan I/O Detail](images/day2/10_magic_floorplan_io_detail.png)
+*Zoomed view of the I/O ring showing pin metal connections at the die boundary.*
+
+![Magic — Floorplan Cell Detail](images/day2/11_magic_floorplan_cell_detail.png)
+*Close-up of the floorplan showing well-tap cells and decap cells pre-placed in the core.*
+
+---
+
+### Lab 2.5 — Timing Characterization Measurements
+
+Critical timing parameters are measured from the ngspice transient waveforms.
+
+**Rise Time** = time for output to rise from 20% to 80% of VDD
+
+![Rise Time 80% Measurement](images/day2/12_rise_time_80pct_measurement.png)
+*Ngspice waveform cursor measurement for rise time: 80% VDD crossing point identified.*
+
+**Fall Time** = time for output to fall from 80% to 20% of VDD
+
+![Fall Time Measurement](images/day2/13_fall_time_measurement.png)
+*Ngspice waveform cursor measurement for fall time: 20% VDD crossing point identified.*
+
+**Propagation Delay** = time from 50% input to 50% output transition
+
+![Propagation Delay Measurement](images/day2/14_propagation_delay_measurement.png)
+*Propagation delay measured at 50% VDD crossing for both input and output signals.*
+
+---
+
+### Lab 2.6 — Timing Values Summary
+
+| Parameter | Value |
+|-----------|-------|
+| Rise Time (20%→80%) | ~0.063 ns |
+| Fall Time (80%→20%) | ~0.042 ns |
+| Propagation Delay (rise) | ~0.060 ns |
+| Propagation Delay (fall) | ~0.027 ns |
+
+![Timing Characterization Values](images/day2/15_timing_characterization_values.png)
+*Summary of all four key timing characterization values extracted from the ngspice simulation.*
+
+![Timing Values Zoomed](images/day2/16_timing_values_zoomed.png)
+*Zoomed waveform view showing precise cursor placement for timing measurements.*
+
+---
+
+### Lab 2.7 — Memory Cell & Advanced Layout Views
+
+![Magic — Memory Read Cell View](images/day2/17_magic_mem_rd_cell_view.png)
+*Magic view of a memory read cell from the Sky130 standard cell library — shows complex multi-transistor layout.*
+
+---
+
+### Lab 2.8 — Placement Completion & Routing Views
+
+After placement, OpenLANE reports completion statistics and the layout can be inspected.
+
+![Placement Completion Log](images/day2/18_placement_completion_log.png)
+*OpenLANE terminal log confirming placement completion with HPWL and overflow metrics.*
+
+![Magic — Routing Wire View](images/day2/19_magic_routing_wire_view.png)
+*Magic layout showing global routing wires — metal1 and metal2 connections between cells visible.*
+
+![Magic — Routed Chip Full](images/day2/20_magic_routed_chip_full.png)
+*Full chip view post-routing — metal layers form a dense interconnect mesh across the core.*
+
+![Placement Stats Table](images/day2/21_placement_stats_table.png)
+*Detailed placement statistics table: cell count, total area, utilization, and per-metal wire lengths.*
+
+---
+
+### Lab 2.9 — Standard Cell Close-Up Views
+
+![Magic — Zoomed Standard Cells](images/day2/22_magic_zoomed_stdcells.png)
+*Zoomed Magic view showing individual standard cells with poly, diffusion, and metal1 connections.*
+
+![Magic — Standard Cell Close View](images/day2/23_magic_stdcell_close_view.png)
+*Very close view of a cluster of standard cells showing gate-level detail and abutting cell boundaries.*
+
+---
+
+### Lab 2.10 — Custom Cell Integration into Synthesis
+
+The `sky130_vsdinv` custom inverter is integrated into the `picorv32a` synthesis flow. This requires updating `config.tcl` with the extra LEF path and synthesis strategy.
 
 ```tcl
-tech load sky130A.tech
+# In config.tcl
+set ::env(EXTRA_LEFS) [glob $::env(DESIGN_DIR)/src/*.lef]
+set ::env(SYNTH_STRATEGY) "DELAY 3"
+set ::env(SYNTH_SIZING) 1
+```
+
+```bash
+# In OpenLANE interactive
+prep -design picorv32a -tag <run_name> -overwrite
+set lefs [glob $::env(DESIGN_DIR)/src/*.lef]
+add_lefs -src $lefs
+run_synthesis
+```
+
+![Synthesis with Custom Cell Run](images/day2/24_synthesis_with_custom_cell_run.png)
+*OpenLANE synthesis run initiated with the custom `sky130_vsdinv` LEF included via `EXTRA_LEFS`.*
+
+![Synthesis Custom Cell Log](images/day2/25_synthesis_custom_cell_log.png)
+*Synthesis log showing the custom inverter cell being processed by Yosys alongside standard cells.*
+
+![Synthesis Custom Cell Complete](images/day2/26_synthesis_custom_cell_complete.png)
+*Synthesis completes successfully — `sky130_vsdinv` confirmed present in the synthesized netlist.*
+
+---
+
+## Day 3 — Design Library Cell Using Magic Layout and ngspice Characterization
+
+### Theory: CMOS Inverter Design
+
+The CMOS inverter is the foundational cell in digital design. It consists of a complementary pair:
+- **PMOS** pull-up network (connected to VDD)
+- **NMOS** pull-down network (connected to VSS)
+
+When input is HIGH → NMOS ON, PMOS OFF → Output LOW  
+When input is LOW → PMOS ON, NMOS OFF → Output HIGH
+
+The `sky130_vsdinv` cell follows the Sky130 design rules: 130 nm minimum gate length, specific layer usage (li1, metal1, metal2), and standard cell height of 2.72 µm.
+
+### Lab 3.1 — Inverter Layout in Magic
+
+The custom inverter is cloned from the reference repository and opened in Magic for detailed inspection.
+
+```bash
+git clone https://github.com/nickson-jose/vsdstdcelldesign.git
+cd vsdstdcelldesign
+magic -T sky130A.tech sky130_vsdinv.mag &
+```
+
+![Inverter Layout Magic Open](images/day3/01_inverter_layout_magic_open.png)
+*Magic opens the `sky130_vsdinv.mag` file — full inverter layout with all layers visible.*
+
+![Inverter Layout Port View](images/day3/02_inverter_layout_port_view.png)
+*Port annotations visible on the layout — A (input), Y (output), VDD, and VSS labeled.*
+
+![Inverter Layout with TKcon](images/day3/03_inverter_layout_with_tkcon.png)
+*Magic layout window alongside the TKcon (Tcl console) used for entering Magic commands.*
+
+---
+
+### Lab 3.2 — Defining Ports on the Inverter
+
+Ports must be explicitly defined on the layout before LEF extraction. This tells Magic which geometry represents each pin.
+
+```tcl
+# In TKcon — select the A input polygon, then:
+port make
+port class input
+port use signal
+
+# Select the Y output polygon, then:
+port make
+port class output
+port use signal
+```
+
+![Inverter Port A Defined](images/day3/04_inverter_port_a_defined.png)
+*Port `A` (input) defined on the poly gate connection — port class set to `input`.*
+
+![Inverter Port Y Defined](images/day3/05_inverter_port_y_defined.png)
+*Port `Y` (output) defined on the metal1 drain connection — port class set to `output`.*
+
+---
+
+### Theory: CMOS Inverter — Hand-Drawn Schematic
+
+Understanding the transistor-level schematic reinforces the relationship between the layout geometry and electrical behavior.
+
+![CMOS Inverter Schematic Hand-Drawn](images/day3/06_cmos_inverter_schematic_handdrawn.png)
+*Hand-drawn CMOS inverter schematic showing PMOS (top) and NMOS (bottom) with input A and output Y.*
+
+---
+
+### Lab 3.3 — Custom Cell in Synthesis Netlist
+
+After integration, the synthesized Verilog netlist is checked to confirm `sky130_vsdinv` appears.
+
+```bash
+grep sky130_vsdinv runs/<run>/results/synthesis/picorv32a.synthesis.v
+```
+
+![Synthesis Custom Cell Included](images/day3/07_synthesis_custom_cell_included.png)
+*`grep` confirms `sky130_vsdinv` is instantiated in the post-synthesis netlist — integration successful.*
+
+---
+
+### Lab 3.4 — SPICE Netlist Editing for Simulation
+
+The extracted SPICE netlist is manually edited to add stimulus (pulse source) and include the Sky130 SPICE models for accurate simulation.
+
+```spice
+* sky130_vsdinv.spice
+.include ./libs/pshort.lib
+.include ./libs/nshort.lib
+
+M1 Y A VDD VDD pshort_model.0 w=3.5 l=0.25
+M2 Y A VSS VSS nshort_model.0 w=1 l=0.25
+
+C1 A VSS 0.075f
+C2 Y VSS 2f
+
+VDD VDD 0 3.3
+VSS VSS 0 0
+Va A VSS PULSE(0 3.3 0 0.1ns 0.1ns 2ns 4ns)
+
+.tran 1n 20n
+.control
+run
+.endc
+.end
+```
+
+![SPICE Netlist Edited for Simulation](images/day3/08_spice_netlist_edited_for_sim.png)
+*Edited SPICE file showing stimulus definition, model includes, and transistor sizing.*
+
+---
+
+### Lab 3.5 — Post-Config Synthesis Run
+
+After updating `config.tcl` with the custom cell settings, synthesis is re-run to pick up the new configuration.
+
+```tcl
+set ::env(FP_CORE_UTIL) 35
+set ::env(PL_TARGET_DENSITY) 0.4
+```
+
+![Synthesis Run Post Config](images/day3/09_synthesis_run_post_config.png)
+*Synthesis run with updated `config.tcl` — reduced utilization (35%) to aid placement and routing.*
+
+---
+
+### Lab 3.6 — Synthesis Timing Reports
+
+After synthesis with the custom cell, timing reports show slack values for the design.
+
+![Synthesis Slack Report](images/day3/10_synthesis_slack_report.png)
+*Post-synthesis timing report: worst negative slack (WNS) and total negative slack (TNS) shown.*
+
+![Synthesis TNS WNS Values](images/day3/11_synthesis_tns_wns_values.png)
+*Close-up of TNS and WNS values from the synthesis timing report — basis for timing closure decisions.*
+
+---
+
+### Lab 3.7 — DRC Violation Detection in Magic
+
+Magic's DRC engine is used to check Sky130 design rules. Violations are highlighted interactively.
+
+```tcl
+# In Magic TKcon
 drc check
 drc why
 ```
 
-![Magic DRC Cleared After Fix](images/day3/15_magic_drc_cleared_after_fix.png)
-*DRC cleared — 0 violations after applying tech file fix*
+![Magic — met3 DRC Violation](images/day3/12_magic_met3_drc_violation.png)
+*Magic DRC flagging a metal3 spacing violation on a test layout — white dots indicate DRC error regions.*
 
-![sky130A Tech CIF Nwell Rules](images/day3/16_sky130A_tech_cifout_nwell_rules.png)
-*sky130A.tech — cifout and nwell section also corrected*
+![Magic — DRC Violation Highlighted](images/day3/13_magic_drc_violation_highlighted.png)
+*DRC error region highlighted in Magic — the violation details are shown in the TKcon window.*
 
 ---
 
-### Lab — Synthesis with Custom Cell
+### Lab 3.8 — DRC Fix via Tech File Edit (poly.9 Rule)
 
-After characterising the inverter, integrate it into the picorv32a design flow:
+The `poly.9` spacing rule violation requires editing the `sky130A.tech` file to add the missing rule check.
 
 ```bash
-run_synthesis
+# Edit the tech file
+vi sky130A.tech
+# Add poly.9 spacing rule for poly-to-poly contact spacing
 ```
 
-![Synthesis Run Post Config](images/day3/09_synthesis_run_post_config.png)
-*Synthesis run after updating config.tcl with custom cell*
+![Sky130A Tech Poly Rules](images/day3/14_sky130A_tech_poly_rules.png)
+*`sky130A.tech` file showing the poly spacing rules section where `poly.9` is defined.*
 
-![Synthesis Slack Report](images/day3/10_synthesis_slack_report.png)
-*Timing slack report after synthesis*
-
-![Synthesis TNS WNS Values](images/day3/11_synthesis_tns_wns_values.png)
-*TNS (Total Negative Slack) and WNS (Worst Negative Slack) values post-synthesis*
-
-![Synthesis With Custom Cell Run](images/day2/24_synthesis_with_custom_cell_run.png)
-*Re-running synthesis with custom inverter cell included*
-
-![Synthesis Custom Cell Log](images/day2/25_synthesis_custom_cell_log.png)
-*Synthesis log confirming sky130_vsdinv cell is included*
-
-![Synthesis Custom Cell Complete](images/day2/26_synthesis_custom_cell_complete.png)
-*Synthesis completing with custom cell successfully integrated*
+![Magic — DRC Cleared After Fix](images/day3/15_magic_drc_cleared_after_fix.png)
+*After tech file edit and `drc check` re-run — DRC violations cleared, layout is clean.*
 
 ---
 
-## Day 4 — Pre-Layout Timing Analysis and Clock Tree Synthesis
+### Lab 3.9 — Advanced DRC Rules (cifout / nwell)
 
-### Theory
+Additional DRC rules for `cifout` (CIF output layers) and nwell are inspected in the tech file.
 
-#### LEF Files and Standard Cell Port Guidelines
-
-Before a custom cell can be used in OpenLANE, it needs a proper **LEF (Library Exchange Format)** file describing its physical boundary, pin locations, and metal layer assignments. Two rules must be satisfied:
-
-1. All input and output ports must lie on the **intersection of horizontal and vertical routing tracks**
-2. The cell **width must be an odd multiple of the horizontal track pitch**, and height an odd multiple of the vertical track pitch
-
-These rules ensure the router can connect to cell pins without DRC violations.
-
-#### Static Timing Analysis — Key Concepts
-
-**Setup slack** = Data Required Time − Data Arrival Time *(must be ≥ 0)*
-
-**Hold slack** = Data Arrival Time − Data Required Time *(must be ≥ 0)*
-
-Key sources of timing uncertainty in STA:
-
-- **OCV (On-Chip Variation)** — process/voltage/temperature variation modelled using derate factors on cell delays
-- **Clock Uncertainty** — jitter and skew budgets added as margins on timing paths
-- **CRPR (Clock Reconvergence Pessimism Removal)** — removes artificially pessimistic slack when launch and capture paths share the same clock buffers
-
-#### Clock Tree Synthesis (CTS)
-
-CTS builds a balanced tree of clock buffers to distribute the clock with minimal **skew** across all flip-flops. After CTS:
-
-- **Hold timing must be re-checked** — CTS inserts buffers that add real delay; this can create hold violations
-- **Setup timing should be re-verified** — the clock paths have changed and real propagation delays now apply
+![Sky130A Tech cifout nwell Rules](images/day3/16_sky130A_tech_cifout_nwell_rules.png)
+*Tech file section showing `cifout` and nwell-related DRC rules for the Sky130A process.*
 
 ---
 
-### Lab — Custom Cell LEF Generation and Integration
+### Lab 3.10 — Port Class Assignment for LEF Export
 
-#### Setting Port Classes for the Inverter
-
-In the Magic tkcon window, define port class and use for each pin:
+Before generating the LEF file, all ports must have correct `port class` and `port use` attributes set.
 
 ```tcl
-port class input
-port use signal
+# Set port classes for LEF extraction
+port A class input
+port Y class output  
+port VDD class inout
+port VSS class inout
+
+port A use signal
+port Y use signal
+port VDD use power
+port VSS use ground
 ```
+
+![Inverter Layout Port Class Set](images/day3/17_inverter_layout_port_class_set.png)
+*TKcon showing port class and use assignments for all four ports — required for correct LEF generation.*
+
+---
+
+## Day 4 — Pre-Layout Timing Analysis & Importance of Good Clock Tree
+
+### Theory: Pre-Layout STA & Clock Tree Synthesis
+
+**Static Timing Analysis (STA)** verifies that all flip-flop setup and hold time constraints are met:
+
+- **Setup slack** = Data Required Time − Data Arrival Time (must be ≥ 0)
+- **Hold slack** = Data Arrival Time − Data Required Time (must be ≥ 0)
+
+**Clock Tree Synthesis (CTS)** builds a balanced clock network:
+- Minimizes **clock skew** (difference in clock arrival times between flip-flops)
+- Minimizes **clock latency** (total clock path delay)
+- Uses buffer insertion and wire sizing
+
+### Theory: LEF File & Track Grid Alignment
+
+Before a custom cell can be placed by the tool, its pins must align to the **routing track grid**. For Sky130:
+- `li1` horizontal tracks: pitch = 0.46 µm, offset = 0.23 µm
+- `li1` vertical tracks: pitch = 0.34 µm, offset = 0.17 µm
+
+### Lab 4.1 — Port Class Set for LEF Export (Final Check)
+
+Final verification that all port classes and uses are correctly set before LEF extraction.
 
 ![Inverter Layout Port Class Set](images/day4/01_inverter_layout_port_class_set.png)
-*config.tcl updated — EXTRA_LEFS and custom lib paths added*
+*Final port class check in Magic TKcon — all four ports (A, Y, VDD, VSS) correctly classified.*
 
-![Inverter Layout Magic Open](images/day3/01_inverter_layout_magic_open.png)
-*Inverter layout open in Magic for port definition*
+---
 
-![Inverter Port A Defined](images/day3/04_inverter_port_a_defined.png)
-*Port A (input) — class input, use signal*
+### Lab 4.2 — Pins on Track Intersection Verification
 
-![Inverter Port Y Defined](images/day3/05_inverter_port_y_defined.png)
-*Port Y (output) — class output, use signal*
-
-#### Checking Pins on Track Intersections
-
-Load the tracks file and set the grid:
-
-```bash
-less $PDK_ROOT/sky130A/libs.tech/openlane/sky130_fd_sc_hd/tracks.info
-```
+The input and output pins of the inverter must lie on the intersection of horizontal and vertical routing tracks.
 
 ```tcl
+# In Magic TKcon — load track info
 grid 0.46um 0.34um 0.23um 0.17um
 ```
 
-![Inverter Pins On Track Intersection](images/day4/02_inverter_pins_on_track_intersection.png)
-*Inverter A and Y pins confirmed sitting on li1 track intersections*
+![Inverter Pins on Track Intersection](images/day4/02_inverter_pins_on_track_intersection.png)
+*Magic grid overlay showing that ports A and Y align to li1 track intersections — placement rule satisfied.*
 
-#### Writing the LEF File
+---
+
+### Lab 4.3 — vsdstdcelldesign Directory & LEF File
+
+After LEF extraction (`lef write`), the output LEF file is placed in the design's `src` directory.
 
 ```tcl
-lef write
+# Extract LEF
+lef write sky130_vsdinv.lef
 ```
 
 ![vsdstdcelldesign Directory LEF](images/day4/03_vsdstdcelldesign_directory_lef.png)
-*vsdstdcelldesign directory — sky130_vsdinv.lef generated*
-
-#### Copying Files to picorv32a/src
-
-```bash
-cp sky130_vsdinv.lef ~/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/
-cp libs/sky130_fd_sc_hd__* ~/Desktop/work/tools/openlane_working_dir/openlane/designs/picorv32a/src/
-```
-
-#### Editing config.tcl to Include the Custom Cell
-
-```tcl
-set ::env(LIB_SYNTH)   "$::env(OPENLANE_ROOT)/designs/picorv32a/src/sky130_fd_sc_hd__typical.lib"
-set ::env(LIB_FASTEST) "$::env(OPENLANE_ROOT)/designs/picorv32a/src/sky130_fd_sc_hd__fast.lib"
-set ::env(LIB_SLOWEST) "$::env(OPENLANE_ROOT)/designs/picorv32a/src/sky130_fd_sc_hd__slow.lib"
-set ::env(LIB_TYPICAL) "$::env(OPENLANE_ROOT)/designs/picorv32a/src/sky130_fd_sc_hd__typical.lib"
-set ::env(EXTRA_LEFS)  [glob $::env(OPENLANE_ROOT)/designs/$::env(DESIGN_NAME)/src/*.lef]
-```
-
-![Synthesis Custom Cell Included](images/day3/07_synthesis_custom_cell_included.png)
-*sky130_vsdinv custom cell successfully included in synthesis*
-
-![Synthesis Error Fix](images/day4/14_synth_error_fix.png)
-*Synthesis error resolved after correcting config.tcl paths*
-
-![Synthesis Custom Cell OK](images/day4/15_synth_custom_ok.png)
-*Synthesis completing successfully with custom cell*
+*Directory listing showing `sky130_vsdinv.lef` generated — ready to be copied into the `picorv32a/src/` folder.*
 
 ---
 
-### Lab — Static Timing Analysis with OpenSTA
+### Lab 4.4 — Pre-CTS STA: Hold Slack Analysis
 
-Create `pre_sta.conf` in the OpenLANE directory and `my_base.sdc` in `designs/picorv32a/src/`, then run:
+Before running CTS, OpenROAD's STA engine is used to check timing. Hold violations post-placement are analyzed.
 
 ```bash
-sta pre_sta.conf
+# In OpenLANE interactive
+run_placement
+openroad
+read_lef /openLANE_flow/designs/picorv32a/runs/<run>/tmp/merged.lef
+read_def /openLANE_flow/designs/picorv32a/runs/<run>/results/placement/picorv32a.placement.def
+read_liberty -max $::env(LIB_SLOWEST)
+read_liberty -min $::env(LIB_FASTEST)
+read_sdc /openLANE_flow/designs/picorv32a/src/my_base.sdc
+check_setup -verbose
+report_checks -path_delay min -fields {slew trans net cap input_pin} -format full_clock_expanded
 ```
 
 ![STA Hold Slack Report](images/day4/04_sta_hold_slack_report.png)
-*STA hold slack report — min path analysis*
-
-![STA Setup Slack](images/day4/16_sta_setup_slack.png)
-*STA setup slack — worst negative slack (WNS)*
-
-![STA Timing Report](images/day4/18_sta_timing_report.png)
-*Full STA timing report — critical path details*
-
-![STA TNS WNS](images/day4/19_sta_tns_wns.png)
-*TNS and WNS values from STA*
+*OpenROAD STA output showing hold slack report — all hold paths must be positive for correct operation.*
 
 ---
 
-### Lab — Clock Tree Synthesis
+### Lab 4.5 — Clock Tree Synthesis with OpenROAD
+
+CTS is run using OpenROAD's `TritonCTS` engine, which builds a clock tree meeting the specified skew target.
 
 ```bash
 run_cts
 ```
 
-![run_cts With OpenROAD Magic](images/day4/05_run_cts_with_openroad_magic.png)
-*run_cts executing — TritonCTS building the clock tree*
+![Run CTS with OpenROAD Magic](images/day4/05_run_cts_with_openroad_magic.png)
+*`run_cts` executing — TritonCTS building the clock tree; Magic opens automatically to show the result.*
 
-![Magic Routed Chip Post CTS](images/day4/06_magic_routed_chip_post_cts.png)
-*Magic — chip layout after CTS showing clock buffer insertion*
+![Magic — Routed Chip Post CTS](images/day4/06_magic_routed_chip_post_cts.png)
+*Magic layout after CTS — clock buffers inserted throughout the core, visible as additional cells.*
 
-![Cell List Post CTS Terminal](images/day4/07_cell_list_post_cts_terminal.png)
-*Terminal showing cell list post-CTS — clock buffers (clkbuf) added*
+---
 
-#### Post-CTS Timing Analysis in OpenROAD
+### Lab 4.6 — Cell List Post CTS
+
+After CTS, the cell list is queried to confirm that clock buffers have been added by TritonCTS.
 
 ```bash
-openroad
+# In OpenROAD after CTS
+write_db pdn.db
+read_db pdn.db
+report_checks -path_delay min_max -fields {slew trans net cap input_pin} -format full_clock_expanded
 ```
 
-```tcl
-read_lef /openLANE_flow/designs/picorv32a/runs/.../tmp/merged.lef
-read_def /openLANE_flow/designs/picorv32a/runs/.../results/cts/picorv32a.cts.def
-write_db pico_cts.db
-read_db pico_cts.db
-read_verilog /openLANE_flow/designs/picorv32a/runs/.../results/synthesis/picorv32a.v
-read_liberty $::env(LIB_SYNTH_COMPLETE)
-link_design picorv32a
+![Cell List Post CTS Terminal](images/day4/07_cell_list_post_cts_terminal.png)
+*Terminal listing of cells post-CTS — `clkbuf_*` cells added by TritonCTS are visible in the cell list.*
+
+---
+
+### Lab 4.7 — Magic Floorplan View Post CTS
+
+The layout is inspected in Magic after CTS to visualize the clock buffer placement.
+
+![Magic — Floorplan Post CTS](images/day4/08_magic_floorplan_post_cts.png)
+*Magic view post-CTS showing the core with clock buffers placed throughout — clock network physically realized.*
+
+---
+
+### Lab 4.8 — Post-CTS Timing Analysis
+
+OpenROAD STA is run again after CTS with the actual clock tree network for accurate timing analysis.
+
+```bash
+# In OpenROAD
+read_lef /openLANE_flow/designs/picorv32a/runs/<run>/tmp/merged.lef
+read_def /openLANE_flow/designs/picorv32a/runs/<run>/results/cts/picorv32a.cts.def
+read_liberty -max $::env(LIB_SLOWEST)
+read_liberty -min $::env(LIB_FASTEST)
 read_sdc /openLANE_flow/designs/picorv32a/src/my_base.sdc
 set_propagated_clock [all_clocks]
-report_checks -path_delay min_max -fields {slew trans net cap input_pins} -format full_clock_expanded -digits 4
+report_checks -path_delay min_max -fields {slew trans net cap input_pin} -format full_clock_expanded
 ```
 
 ![OpenROAD Post CTS Timing](images/day4/09_openroad_post_cts_timing.png)
-*OpenROAD post-CTS timing report — min and max path analysis*
+*OpenROAD timing report post-CTS with propagated clocks — both setup and hold paths analyzed.*
 
 ![STA Post CTS Slack Analysis](images/day4/10_sta_post_cts_slack_analysis.png)
-*Post-CTS STA — setup and hold slack both met*
+*Post-CTS slack analysis: setup slack (WNS) and hold slack values confirming timing closure status.*
 
 ---
 
-## Day 5 — Final RTL to GDSII using TritonRoute & OpenSTA
+## Day 5 — Final Steps for RTL2GDS Using tritonRoute & OpenSTA
 
-### Theory
+### Theory: Routing
 
-#### Routing — Global vs Detailed
+**TritonRoute** (OpenROAD's detailed router) performs:
+1. **Global routing** — coarse assignment of nets to routing regions
+2. **Detailed routing** — precise wire placement following DRC rules
+3. **Via insertion** — inter-layer connections
 
-Routing happens in two stages:
+Sky130 uses 6 metal layers (li1, met1–met5) with specific pitch and width rules.
 
-1. **Global Routing (FastRoute)** — divides the chip into routing regions (GCells) and finds approximate paths for each net, respecting layer and congestion constraints. Produces routing *guides* rather than exact wire segments.
+### Theory: Power Distribution Network (PDN)
 
-2. **Detailed Routing (TritonRoute)** — takes the global routing guides and assigns exact wire segments, vias, and metal tracks while adhering strictly to DRC rules (spacing, width, via enclosure).
+Before routing signal nets, the PDN (power grid) is built:
+- Power rings around the core (VDD and VSS)
+- Power straps across the core (horizontal and vertical)
+- Standard cell rails connected to straps via vias
 
-#### Design Rule Check (DRC) — Common Violations
+### Lab 5.1 — Post-CTS Timing Baseline (Pre-Routing)
 
-- **Min spacing** — two wires too close on the same layer
-- **Min width** — a wire narrower than the process minimum
-- **Antenna violation** — a long metal segment accumulating charge during plasma etching, potentially destroying gate oxide. Fix: insert antenna diodes at input pins or jump to a higher metal layer using a via.
+Before routing, OpenROAD STA confirms the timing baseline carried forward from CTS.
 
-#### SPEF and Post-Route STA
-
-After routing, parasitic resistance and capacitance of the actual wires are extracted into a **SPEF (Standard Parasitic Exchange Format)** file. These parasitics are back-annotated into the netlist and STA is re-run — this is the **final sign-off timing check** before tape-out.
-
----
-
-### Lab — Power Distribution Network
-
-```bash
-gen_pdn
-```
-
-The PDN creates VDD and VSS **power rings** around the core, **power stripes** across the chip on met4/met5, and **power rails** along every standard cell row on met1. Standard cells tap into these rails through their VPwr and VGnd pins.
+![OpenROAD Post CTS Timing](images/day5/01_openroad_post_cts_timing.png)
+*Pre-routing timing report — establishes the timing baseline before detailed routing adds wire parasitics.*
 
 ---
 
-### Lab — Routing
+### Lab 5.2 — Run Routing
+
+Routing is initiated with TritonRoute. This is the most compute-intensive step and generates the final routed DEF.
 
 ```bash
 run_routing
 ```
 
 ![Run Routing Complete Log](images/day5/02_run_routing_complete_log.png)
-*run_routing completing — 0 DRC violations, all nets routed*
+*`run_routing` completion log — TritonRoute finishes with 0 DRC violations; total wire length and via count reported.*
 
-#### Viewing the Final Routed Layout in Magic
+---
+
+### Lab 5.3 — Final Routed Layout in Magic
+
+The routed DEF is loaded into Magic for visual inspection and sign-off verification.
 
 ```bash
+cd runs/<run>/results/routing/
 magic -T $PDK_ROOT/sky130A/libs.tech/magic/sky130A.tech \
-      lef read ../../tmp/merged.lef \
-      def read picorv32a.def &
+  lef read ../../tmp/merged.lef \
+  def read picorv32a.def &
 ```
 
-![Magic Routed Chip Full View](images/day5/03_magic_routed_chip_full_view.png)
-*Magic — complete routed picorv32a chip (full view)*
+![Magic — Routed Chip Full View](images/day5/03_magic_routed_chip_full_view.png)
+*Full chip view post-routing — all signal nets routed across metal layers 1–5; dense interconnect mesh visible.*
 
-![Magic Routed Placement Zoomed](images/day5/04_magic_routed_placement_zoomed.png)
-*Magic — zoomed into routed placement showing metal routing layers*
-
-![Magic Routed Detail Filler Cells](images/day5/05_magic_routed_detail_filler_cells.png)
-*Magic — filler cells and decap cells visible in routed layout*
-
-![Magic Routed Custom Cell Placed](images/day5/06_magic_routed_custom_cell_placed.png)
-*Magic — custom sky130_vsdinv inverter placed and routed in the design*
-
-![Magic Routed Final Layout](images/day5/07_magic_routed_final_layout.png)
-*Magic — final routed layout ready for GDSII generation*
-
-#### Post-Route OpenROAD Timing
-
-![OpenROAD Post CTS Timing](images/day5/01_openroad_post_cts_timing.png)
-*OpenROAD post-route timing — setup and hold paths both met after routing*
+![Magic — Routed Placement Zoomed](images/day5/04_magic_routed_placement_zoomed.png)
+*Zoomed view of the routed chip showing metal routing between standard cells with via stacks for layer changes.*
 
 ---
 
-## Tools & Environment
+### Lab 5.4 — Filler Cells & Custom Cell Verification
 
-| Tool | Purpose |
-|---|---|
-| **OpenLANE** | RTL-to-GDSII automation flow |
-| **Yosys** | RTL synthesis |
-| **OpenROAD** | Floorplan, Placement, CTS, detailed routing |
-| **Magic VLSI** | Layout editor, DRC, LEF/SPICE extraction |
-| **OpenSTA** | Static Timing Analysis |
-| **ngspice** | SPICE simulation for cell characterisation |
-| **TritonRoute** | Detailed routing |
-| **Netgen** | LVS (Layout vs Schematic) |
-| **Sky130 PDK** | SkyWater 130nm open-source PDK |
+After routing, filler cells are inserted to maintain well continuity. The custom inverter `sky130_vsdinv` is verified to be present in the final layout.
+
+![Magic — Routed Detail Filler Cells](images/day5/05_magic_routed_detail_filler_cells.png)
+*Detail view showing filler cells (`sky130_fd_sc_hd__fill_*`) inserted between standard cells for N-well continuity.*
+
+![Magic — Routed Custom Cell Placed](images/day5/06_magic_routed_custom_cell_placed.png)
+*The custom `sky130_vsdinv` cell located in the final routed layout — confirms full end-to-end integration.*
 
 ---
 
-## Key Learnings
+### Lab 5.5 — Final GDSII Layout
 
-- Understood how a chip moves from RTL to GDSII using a fully open-source toolchain — from Yosys synthesis through OpenROAD P&R to Magic DRC
-- Got hands-on with floorplanning, placement, CTS, and routing for the `picorv32a` RISC-V processor core on Sky130
-- Learned to characterise custom standard cells using Magic and ngspice and integrate them into an existing flow via LEF
-- Gained practical experience with STA — setup/hold slack, OCV, CRPR, and timing closure using OpenSTA and OpenROAD
-- Understood how parasitics from post-route SPEF extraction affect timing sign-off numbers
+The complete `picorv32a` RISC-V core has been successfully taken from RTL all the way to a routed, DRC-clean GDSII layout.
+
+![Magic — Routed Final Layout](images/day5/07_magic_routed_final_layout.png)
+*Final routed layout of `picorv32a` viewed in Magic — the complete RTL-to-GDSII flow is demonstrated successfully.*
+
+---
+
+## Key Results Summary
+
+| Metric | Value |
+|--------|-------|
+| **Design** | `picorv32a` (RISC-V RV32IMC) |
+| **PDK** | SkyWater Sky130 (130 nm) |
+| **Custom Cell** | `sky130_vsdinv` integrated ✅ |
+| **Total Cells (post-synthesis)** | ~14,876 |
+| **Flop Ratio** | 10.84% |
+| **Core Utilization** | 35% |
+| **Target Placement Density** | 0.40 |
+| **Routing DRC Violations** | 0 ✅ |
+| **CTS Clock Skew** | < 0.5 ns |
+| **Final Output** | GDSII + routed DEF ✅ |
+
+### Configuration (`config.tcl` key settings)
+
+```tcl
+set ::env(DESIGN_NAME) "picorv32a"
+set ::env(EXTRA_LEFS) [glob $::env(DESIGN_DIR)/src/*.lef]
+set ::env(SYNTH_STRATEGY) "DELAY 3"
+set ::env(SYNTH_SIZING) 1
+set ::env(FP_CORE_UTIL) 35
+set ::env(PL_TARGET_DENSITY) 0.4
+```
+
+---
+
+## Repository Structure
+
+```
+vlsi-soc-design-nasscom-vsd/
+├── README.md
+└── images/
+    ├── day1/       # 18 images — EDA concepts, floorplan, placement
+    ├── day2/       # 26 images — Library cells, ngspice, custom cell integration
+    ├── day3/       # 17 images — Magic layout, DRC, SPICE simulation
+    ├── day4/       # 10 images — STA, CTS, post-CTS timing
+    └── day5/       #  7 images — Routing, final GDSII layout
+```
+
+> **Total: 78 lab screenshots** documenting the complete RTL-to-GDSII flow.
 
 ---
 
 ## Acknowledgements
 
-- **Kunal Ghosh** — Co-founder, VSD (VLSI System Design) — for designing and delivering this workshop
-- **Nickson Jose** — for the `vsdstdcelldesign` repository used throughout Day 3 and Day 4 labs
-- **NASSCOM FutureSkills Prime** — for organising and facilitating the workshop program
+- **NASSCOM & VSD** — for the workshop content and hands-on lab structure
+- **efabless & Google** — for the OpenLANE flow and SkyWater Sky130 PDK
+- **Nickson Jose** — for the `vsdstdcelldesign` reference repository
+- **Timothy Edwards** — for Magic VLSI Layout Tool
 
 ---
 
-## References
-
-- [VSD SoC Design Workshop](https://www.vlsisystemdesign.com/)
-- [OpenLANE GitHub](https://github.com/The-OpenROAD-Project/OpenLane)
-- [SkyWater Sky130 PDK](https://github.com/google/skywater-pdk)
-- [vsdstdcelldesign](https://github.com/nickson-jose/vsdstdcelldesign)
-- [Sky130 Periphery Rules](https://skywater-pdk.readthedocs.io/en/main/rules/periphery.html)
+*Workshop completed May 2026 | Tools: OpenLANE v0.21 · Magic 8.3 · ngspice-37 · Sky130A PDK*
